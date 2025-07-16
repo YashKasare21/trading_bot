@@ -1,81 +1,106 @@
 # AI Stock Trading Bot
 
-This project implements an AI-powered stock trading bot using Stable-Baselines3, Gymnasium (formerly OpenAI Gym), and Streamlit. The bot is trained in a custom trading environment and can be run as a web application for interactive analysis.
+# AI-Powered Stock Trading Bot
 
-## Features
+This project develops an advanced AI-powered stock trading bot leveraging **Stable-Baselines3** for reinforcement learning, **Gymnasium** (formerly OpenAI Gym) for environment simulation, and **Streamlit** for an interactive web application. The bot is designed to learn optimal trading strategies within a custom-built trading environment and provides a user-friendly interface for real-time analysis and simulation.
 
-- **Custom Trading Environment**: A Gymnasium-compatible environment (`StockTradingEnv`) for simulating stock trading.
-- **Reinforcement Learning**: Utilizes Stable-Baselines3 for training a PPO agent to learn optimal trading strategies.
-- **Data Integration**: Fetches historical stock data using `yfinance`.
-- **Technical Indicators**: Incorporates various technical analysis indicators using `ta` library.
-- **Sentiment Analysis**: Integrates with the Gemini API for news sentiment analysis.
-- **Streamlit Web Application**: Provides an interactive user interface to visualize trading performance and interact with the bot.
+## Key Features
+
+-   **Custom Trading Environment**: A robust, Gymnasium-compatible `StockTradingEnv` for realistic stock market simulations.
+-   **Reinforcement Learning Integration**: Employs Stable-Baselines3 to train a Proximal Policy Optimization (PPO) agent, enabling the bot to develop sophisticated trading strategies.
+-   **Dynamic Data Acquisition**: Seamlessly fetches real-time and historical stock data via the `yfinance` library.
+-   **Comprehensive Technical Analysis**: Integrates the `ta` library to generate a wide array of technical indicators, enriching the observation space for the AI.
+-   **Advanced Sentiment Analysis**: Incorporates the Gemini API to analyze news sentiment, providing crucial market insights.
+-   **Interactive Web Application**: A user-friendly Streamlit interface for visualizing trading performance, conducting backtests, and interacting with the AI bot.
 
 ## Project Structure
 
-- `training_colab.py`: Contains the custom `StockTradingEnv` and the training script for the PPO agent.
-- `streamlit_app.py`: The main Streamlit application for running the trading bot and visualizing results.
-- `gemini_utils.py`: Utility functions for interacting with the Gemini API for sentiment analysis.
-- `config.py`: Configuration file (e.g., for API keys, though currently handled via Streamlit secrets).
-- `requirements.txt`: Lists all Python dependencies.
-- `data.csv`: Sample historical stock data (can be replaced by live data fetching).
-- `ppo_trading_bot.zip`: Pre-trained model for the trading bot.
+-   `training_colab.py`: Defines the custom `StockTradingEnv` and includes the script for training the PPO agent.
+-   `streamlit_app.py`: The core Streamlit application, providing the interactive user interface for running simulations and visualizing trading outcomes.
+-   `gemini_utils.py`: Contains essential utility functions for integrating and interacting with the Gemini API for sentiment analysis.
+-   `config.py`: Centralized configuration file managing key parameters such as API keys, default dates, and model paths.
+-   `requirements.txt`: Lists all necessary Python dependencies for the project.
+-   `data.csv`: A sample dataset for initial setup and testing (the application primarily uses live data fetching).
+-   `trading_bot_model_PPO.zip`: The pre-trained PPO model, ready for deployment within the Streamlit application.
 
 ## Setup and Installation
 
-1.  **Clone the repository (if not already done):**
+Follow these steps to set up and run the project locally:
+
+1.  **Clone the Repository**
+    If you haven't already, clone the project repository to your local machine:
     ```bash
-    git clone <repository_url>
+    git clone https://github.com/YashKasare21/trading_bot.git
     cd trading_bot
     ```
 
-2.  **Create a virtual environment (recommended):**
+2.  **Create and Activate a Virtual Environment**
+    It is highly recommended to use a virtual environment to manage dependencies:
     ```bash
     python -m venv venv
-    source venv/Scripts/activate  # On Windows
-    # source venv/bin/activate    # On macOS/Linux
+    # On Windows:
+    .\venv\Scripts\activate
+    # On macOS/Linux:
+    source venv/bin/activate
     ```
 
-3.  **Install dependencies:**
+3.  **Install Dependencies**
+    Install all required Python packages using `pip`:
     ```bash
     pip install -r requirements.txt
     ```
 
-4.  **Gemini API Key:**
-    This application requires a Gemini API key for sentiment analysis. You can obtain one from [Google AI Studio](https://aistudio.google.com/app/apikey).
+4.  **Configure Gemini API Key**
+    This application utilizes the Gemini API for sentiment analysis. Obtain your API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
     
-    When running the Streamlit application, you will be prompted to enter your Gemini API key in the sidebar.
+    During the Streamlit application runtime, you will be prompted to enter your Gemini API key directly within the sidebar. This ensures secure handling of your credentials.
 
-## How to Run
+## How to Run the Application
 
-1.  **Ensure your virtual environment is activated.**
+Once the setup is complete, you can launch the Streamlit web application:
 
-2.  **Run the Streamlit application:**
+1.  **Activate your virtual environment** (if not already active).
+
+2.  **Execute the Streamlit command** from the project root directory:
     ```bash
     streamlit run streamlit_app.py
     ```
 
-3.  **Access the application:**
-    Your web browser should automatically open to the Streamlit application (usually `http://localhost:8501`). If not, open your browser and navigate to that address.
+3.  **Access the Application**: Your default web browser should automatically open to the Streamlit interface (typically at `http://localhost:8501`). If it doesn't, manually navigate to this URL.
 
-## Training the Agent (Optional)
+## Training the AI Agent (Optional)
 
-If you wish to retrain the PPO agent or modify the training process, you can run the `training_colab.py` script. This script is designed to be run in an environment like Google Colab, but can also be executed locally.
+For users interested in retraining the PPO agent or customizing the training methodology, the `training_colab.py` script is provided. While optimized for environments like Google Colab, it can also be executed locally:
 
 ```bash
 python training_colab.py
 ```
 
-**Note**: Training can be computationally intensive and may require a GPU for faster results.
+**Note**: Agent training is a computationally intensive process. Utilizing a GPU is highly recommended to significantly accelerate training times.
 
-## Troubleshooting
+## Troubleshooting Common Issues
 
--   **`ImportError: cannot import name 'get_distribution' from 'pkg_resources'`**: This often indicates an issue with `setuptools`. Try upgrading it: `pip install --upgrade setuptools`.
--   **`ImportError: cannot import name 'gym' from 'gymnasium'`**: Ensure `shimmy` is installed (`pip install shimmy`) and your environment is correctly configured for Gymnasium.
--   **`yfinance` data fetching issues**: Verify your internet connection. Try different ticker symbols and date ranges. `yfinance` can sometimes have intermittent issues.
--   **`'str' object has no attribute 'get'`**: This error typically occurs if the sentiment analysis function returns a string when a dictionary is expected. Ensure `gemini_utils.py`'s `get_gemini_sentiment` returns a dictionary with `sentiment_label`, `sentiment_score`, and `summary`.
--   **Observation Shape Mismatch**: If you encounter errors related to unexpected observation shapes, check the `num_total_features` calculation in `StockTradingEnv`'s `__init__` method and ensure it matches the actual number of features in your `data` DataFrame after technical indicators and sentiment scores are added.
+-   **`ImportError: cannot import name 'get_distribution' from 'pkg_resources'`**:
+    This error often points to an outdated `setuptools` package. Resolve it by upgrading:
+    ```bash
+    pip install --upgrade setuptools
+    ```
+
+-   **`ImportError: cannot import name 'gym' from 'gymnasium'`**:
+    Ensure that `shimmy` is installed and your Gymnasium environment is correctly configured:
+    ```bash
+    pip install shimmy
+    ```
+
+-   **`yfinance` Data Fetching Problems**:
+    Verify your internet connection. Issues can sometimes arise from `yfinance` itself; try alternative ticker symbols or adjust date ranges.
+
+-   **`'str' object has no attribute 'get'`**:
+    This error suggests that the `get_gemini_sentiment` function in `gemini_utils.py` is returning a string instead of the expected dictionary. Confirm that the function's output includes `sentiment_label`, `sentiment_score`, and `summary` keys.
+
+-   **Observation Shape Mismatch Errors**:
+    If you encounter errors related to inconsistent observation shapes, review the `num_total_features` calculation within the `StockTradingEnv`'s `__init__` method. Ensure it accurately reflects the total number of features in your `data` DataFrame, especially after the integration of technical indicators and sentiment scores.
 
 ## License
 
-This project is licensed under the MIT License - see the `LICENSE` file for details.
+This project is distributed under the MIT License. See the `LICENSE` file for more details.
