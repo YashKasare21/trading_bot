@@ -1,3 +1,21 @@
+# ===== Trading Bot specific =====
+# Secrets
+.env
+
+# Data directories
+data/cache/
+data/models/
+!data/cache/.gitkeep
+!data/models/.gitkeep
+
+# Data files
+*.parquet
+*.db
+
+# Tensorboard logs
+tensorboard_logs/
+
+# ===== Python standard =====
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
