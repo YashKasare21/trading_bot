@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -158,7 +157,6 @@ def _build_engine_with_mock(df: pd.DataFrame):
 
 def test_run_benchmark_full_episode():
     """run_benchmark must produce a portfolio_values series with length == len(df)."""
-    from trading_bot.backtest.engine import BacktestEngine
 
     df = _make_synthetic_ohlcv(n=300)  # needs 300+ rows to survive TA warmup
     engine = _build_engine_with_mock(df)
@@ -174,7 +172,6 @@ def test_run_rule_based_generates_trades():
     RSI strategy on a volatile synthetic series should generate at least
     one buy OR sell signal when the thresholds are loosened to 40/60.
     """
-    from trading_bot.backtest.engine import BacktestEngine
 
     df = _make_synthetic_ohlcv(n=300)
     engine = _build_engine_with_mock(df)
@@ -194,7 +191,6 @@ def test_run_rule_based_generates_trades():
 
 def test_compare_returns_dataframe():
     """compare() must return a DataFrame with strategies as columns."""
-    from trading_bot.backtest.engine import BacktestEngine
 
     df = _make_synthetic_ohlcv(n=300)
     engine = _build_engine_with_mock(df)
@@ -207,3 +203,85 @@ def test_compare_returns_dataframe():
     assert isinstance(comparison, pd.DataFrame)
     assert "Buy&Hold" in comparison.columns
     assert "RSI" in comparison.columns
+
+
+# ── Additional metrics edge-case tests ────────────────────────────────────────
+
+
+def test_sortino_no_downside_returns_inf():
+    """All-positive returns → no downside → Sortino should be +inf."""
+    from trading_bot.backtest.metrics import sortino_ratio
+
+    returns = pd.Series([0.005] * 100)
+    assert math.isinf(sortino_ratio(returns))
+
+
+def test_sortino_mixed_returns_positive():
+    """Excess-positive-skewed returns must produce a positive Sortino ratio."""
+    from trading_bot.backtest.metrics import sortino_ratio
+
+    rng = np.random.default_rng(seed=3)
+    returns = pd.Series(0.002 + rng.normal(0, 0.003, size=252))
+    assert sortino_ratio(returns) > 0
+
+
+def test_sortino_single_element_returns_zero():
+    """Single-element series must return 0.0 (not crash)."""
+    from trading_bot.backtest.metrics import sortino_ratio
+
+    assert sortino_ratio(pd.Series([0.01])) == 0.0
+
+
+def test_max_drawdown_flat_portfolio():
+    """Flat portfolio has zero drawdown."""
+    from trading_bot.backtest.metrics import max_drawdown
+
+    assert max_drawdown(_flat_portfolio()) == pytest.approx(0.0)
+
+
+def test_max_drawdown_single_element():
+    """Single-element portfolio must return 0.0."""
+    from trading_bot.backtest.metrics import max_drawdown
+
+    assert max_drawdown(pd.Series([100_000.0])) == 0.0
+
+
+def test_cagr_flat_portfolio():
+    """Flat (no-growth) portfolio must give CAGR == 0.0."""
+    from trading_bot.backtest.metrics import cagr
+
+    assert cagr(_flat_portfolio()) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_calmar_zero_drawdown_returns_zero():
+    """Zero max drawdown → calmar must return 0.0 (no division by zero)."""
+    from trading_bot.backtest.metrics import calmar_ratio
+
+    assert calmar_ratio(_flat_portfolio()) == 0.0
+
+
+def test_compute_all_with_benchmark_includes_alpha_beta():
+    """When benchmark_values provided, compute_all must include alpha and beta keys."""
+    from trading_bot.backtest.metrics import compute_all
+
+    pv = _growing_portfolio()
+    bv = _growing_portfolio(daily_return=0.0005)  # slower benchmark
+    result = compute_all(pv, benchmark_values=bv)
+    assert "alpha" in result
+    assert "beta" in result
+    assert "benchmark_cagr" in result
+
+
+def test_win_rate_empty_returns_zero():
+    """Empty returns series must give win_rate == 0.0 without error."""
+    from trading_bot.backtest.metrics import win_rate
+
+    assert win_rate(pd.Series([], dtype=float)) == 0.0
+
+
+def test_profit_factor_no_gains_returns_zero():
+    """All-negative returns must give profit_factor == 0.0 (gains == 0)."""
+    from trading_bot.backtest.metrics import profit_factor
+
+    returns = pd.Series([-0.001] * 50)
+    assert profit_factor(returns) == pytest.approx(0.0)

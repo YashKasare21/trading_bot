@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from trading_bot.backtest.metrics import compute_all
-from trading_bot.config import TRANSACTION_COST_PCT, STT_RATE
+from trading_bot.config import STT_RATE, TRANSACTION_COST_PCT
 from trading_bot.data.fetcher import MarketDataFetcher
 from trading_bot.data.sentiment import SentimentAnalyzer
 from trading_bot.features.pipeline import FeaturePipeline
@@ -115,7 +115,7 @@ class BacktestEngine:
             env.norm_reward = False
 
         model_path = self._model_dir / f"{model_name}.zip"
-        AlgoCls = algo_map[algo]
+        AlgoCls = algo_map[algo]  # noqa: N806
         model = AlgoCls.load(str(model_path), env=env)
 
         obs = env.reset()

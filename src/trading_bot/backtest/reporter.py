@@ -13,7 +13,6 @@ from pathlib import Path
 import pandas as pd
 
 from trading_bot.backtest.engine import BacktestResult
-from trading_bot.backtest.metrics import compute_daily_returns
 
 logger = logging.getLogger(__name__)
 

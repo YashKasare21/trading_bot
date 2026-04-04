@@ -6,13 +6,10 @@ All Gemini API and NewsAPI calls are mocked — no real HTTP requests.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,10 +28,11 @@ def _mock_gemini_response(label: str) -> MagicMock:
 
 def _make_analyzer():
     """Return a SentimentAnalyzer with an in-memory DataStore."""
-    from trading_bot.data.sentiment import SentimentAnalyzer
-    from trading_bot.data.store import DataStore
     import tempfile
     from pathlib import Path
+
+    from trading_bot.data.sentiment import SentimentAnalyzer
+    from trading_bot.data.store import DataStore
 
     tmpdir = tempfile.mkdtemp()
     store = DataStore(db_path=Path(tmpdir) / "test.db")
@@ -131,3 +129,84 @@ def test_get_daily_sentiment_mean():
         daily_score = analyzer.get_daily_sentiment(ticker, entry_date, headlines)
 
     assert abs(daily_score - 0.0) < 1e-6, f"Expected 0.0, got {daily_score}"
+
+
+def test_get_daily_sentiment_empty_headlines():
+    """No headlines should return 0.0 without calling the API."""
+    analyzer = _make_analyzer()
+    with patch("requests.post") as mock_post:
+        score = analyzer.get_daily_sentiment("RELIANCE.NS", date(2024, 1, 15), [])
+        mock_post.assert_not_called()
+    assert score == pytest.approx(0.0)
+
+
+def _mock_newsapi_response(headlines: list[str]) -> MagicMock:
+    """Build a mock requests.Response for a NewsAPI articles list."""
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "articles": [{"title": h} for h in headlines]
+    }
+    return mock_resp
+
+
+def test_fetch_and_score_news_no_api_key():
+    """Missing NEWS_API_KEY must return an empty DataFrame without crashing."""
+    import trading_bot.data.sentiment as sentiment_mod
+
+    analyzer = _make_analyzer()
+    original = sentiment_mod.NEWS_API_KEY
+    try:
+        sentiment_mod.NEWS_API_KEY = None  # type: ignore[assignment]
+        result = analyzer.fetch_and_score_news("RELIANCE.NS", date(2024, 1, 1), date(2024, 1, 3))
+    finally:
+        sentiment_mod.NEWS_API_KEY = original
+
+    assert result.empty
+    assert "sentiment_score" in result.columns
+    assert "headline_count" in result.columns
+
+
+def test_fetch_and_score_news_with_headlines():
+    """fetch_and_score_news must return one row per day that has headlines."""
+    import trading_bot.data.sentiment as sentiment_mod
+
+    analyzer = _make_analyzer()
+    original_key = sentiment_mod.NEWS_API_KEY
+
+    try:
+        sentiment_mod.NEWS_API_KEY = "fake-key"
+
+        newsapi_resp = _mock_newsapi_response(["Reliance Q4 profit up 10%", "Reliance wins contract"])
+        gemini_resp = _mock_gemini_response("Positive")
+
+        with patch("requests.get", return_value=newsapi_resp):
+            with patch("requests.post", return_value=gemini_resp):
+                result = analyzer.fetch_and_score_news(
+                    "RELIANCE.NS", date(2024, 1, 2), date(2024, 1, 2)
+                )
+    finally:
+        sentiment_mod.NEWS_API_KEY = original_key
+
+    assert not result.empty
+    assert "sentiment_score" in result.columns
+    assert "headline_count" in result.columns
+    assert result["headline_count"].iloc[0] == 2
+
+
+def test_fetch_headlines_newsapi_error_returns_empty():
+    """A RequestException from NewsAPI must return an empty list without crashing."""
+    import requests as req
+
+    import trading_bot.data.sentiment as sentiment_mod
+
+    analyzer = _make_analyzer()
+    original_key = sentiment_mod.NEWS_API_KEY
+    try:
+        sentiment_mod.NEWS_API_KEY = "fake-key"
+        with patch("requests.get", side_effect=req.exceptions.RequestException("timeout")):
+            headlines = analyzer._fetch_headlines_for_date("RELIANCE", date(2024, 1, 2))
+    finally:
+        sentiment_mod.NEWS_API_KEY = original_key
+
+    assert headlines == []

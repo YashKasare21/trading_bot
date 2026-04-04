@@ -83,10 +83,22 @@ trading_bot/
 - Transaction costs: Zerodha model (0.03% delivery + STT)
 
 ## Phases
-Phase 1 (current): Foundation — project scaffold, FeaturePipeline, env v2 skeleton, CI
-Phase 2: Real sentiment pipeline, backtesting metrics, tests
-Phase 3: Multi-algo training, Optuna tuning, walk-forward validation
-Phase 4: Inference engine, APScheduler, Telegram bot
+Phase 1 (COMPLETE): Foundation — project scaffold, FeaturePipeline, env v2 skeleton, CI
+Phase 2 (COMPLETE): Real sentiment pipeline, backtesting metrics, reporter, tests
+Phase 3 (IN PROGRESS): Multi-algo training, Optuna tuning, walk-forward validation
+  Files added:
+  - src/trading_bot/models/train.py — TrainingConfig, train_agent, load_agent, build_env
+  - src/trading_bot/models/tune.py — make_objective, run_tuning, best_config_from_study
+  - src/trading_bot/models/walk_forward.py — generate_windows, run_walk_forward, summarise
+  - src/trading_bot/models/registry.py — ModelRegistry, ModelRecord (atomic JSON registry)
+  - tests/test_models.py — 16 tests (no sb3/torch needed locally)
+  Walk-forward viability threshold: mean Sharpe > 0.5 (do not change without discussion)
+Phase 4 (next): Inference engine + signal delivery
+  - src/trading_bot/inference/predictor.py — loads production model from registry, runs ensemble
+  - src/trading_bot/inference/scheduler.py — APScheduler post-3:30pm IST cron
+  - src/trading_bot/inference/notifier.py — Telegram bot signal formatting + delivery
+  - src/trading_bot/inference/signal.py — Signal dataclass (ticker, action, confidence, entry, stop, target)
+  - dashboard/app.py — Streamlit dashboard (Signal cards + backtest tearsheet + accuracy tracker)
 Phase 5: LSTM policy, multi-stock, MLflow tracking
 
 ## APIs in use
