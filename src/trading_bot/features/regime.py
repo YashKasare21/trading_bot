@@ -85,8 +85,9 @@ class RegimeDetector:
         """
         Append a 'market_regime' integer column to *df*.
 
-        The first observation has regime=0 since log returns require a
-        prior row. The remaining rows are labelled by the HMM.
+        If no model has been loaded or fitted yet (e.g. first cloud inference
+        run where regime_hmm.pkl was never committed), the HMM is fitted
+        on-the-spot using the available data before labelling.
 
         Args:
             df: DataFrame with at least a 'Close' column.
@@ -94,6 +95,15 @@ class RegimeDetector:
         Returns:
             Copy of *df* with the 'market_regime' column added.
         """
+        if self._model is None:
+            logger.warning(
+                "No fitted HMM found — fitting RegimeDetector on %d rows of "
+                "available data. For stable regimes across runs, commit "
+                "data/models/regime_hmm.pkl to the repository.",
+                len(df),
+            )
+            self.fit(df)
+
         result = df.copy()
         labels = self.predict(df)
         # labels has one fewer row than df because log returns drop the first row

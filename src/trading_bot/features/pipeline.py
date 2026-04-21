@@ -181,10 +181,13 @@ class FeaturePipeline:
         result = add_fourier_features(result, self.fourier_periods)
 
         # Step 4: HMM market regime
+        # fit=True  → explicit training run, fit + save the model.
+        # fit=False → inference run; add_regime_feature auto-fits if no model
+        #             is loaded (cloud env without committed regime_hmm.pkl).
         if fit:
             self._regime_detector.fit(result)
             self._regime_detector.save()
-        result = self._regime_detector.add_regime_feature(result)
+        result = self._regime_detector.add_regime_feature(result)  # self-heals if unfitted
 
         # Step 5: Sentiment merge
         if self.include_sentiment and sentiment_df is not None:
