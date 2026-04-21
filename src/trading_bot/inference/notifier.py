@@ -40,7 +40,7 @@ class SignalDispatcher:
         self,
         bot_token: str | None = None,
         chat_id: str | None = None,
-        send_hold_signals: bool = False,
+        send_hold_signals: bool = True,  # TODO: Set back to False after live test
     ) -> None:
         self._token = bot_token or TELEGRAM_BOT_TOKEN
         self._chat_id = chat_id or TELEGRAM_CHAT_ID
