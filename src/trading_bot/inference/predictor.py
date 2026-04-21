@@ -265,7 +265,7 @@ class EnsemblePredictor:
             model = self._get_rl_model(algo)
             if model is None:
                 return Action.HOLD
-            obs = self._build_obs(featured_df)
+            obs = self._build_obs(featured_df, model)
             return self._predict_rl(model, obs)
         except Exception as exc:  # noqa: BLE001
             logger.warning("RL vote failed for %s/%s: %s — defaulting HOLD.", algo, algo, exc)
@@ -281,10 +281,61 @@ class EnsemblePredictor:
             return Action.SELL
         return Action.HOLD
 
-    def _build_obs(self, featured_df: pd.DataFrame) -> np.ndarray:
-        """Construct a (1, window_size × n_features) observation from the last rows."""
-        window = featured_df.select_dtypes(include=[np.number]).iloc[-WINDOW_SIZE:]
-        return window.values.flatten().reshape(1, -1).astype(np.float32)
+    def _build_obs(self, featured_df: pd.DataFrame, model: object | None = None) -> np.ndarray:
+        """
+        Build a 2D observation array that matches the trained model's obs space.
+
+        Reads model.observation_space.shape to handle mismatches between the
+        current FeaturePipeline (which may generate more features than training)
+        and the fixed obs space baked into the saved model weights.
+
+        Strategy:
+          - window_size: taken from obs_space.shape[0] (e.g. 10)
+          - n_cols:      taken from obs_space.shape[1] (e.g. 94)
+          - Trim featured_df columns to n_cols if pipeline generates more.
+          - Zero-pad if pipeline generates fewer (should not happen in practice).
+          - Return shape (window_size, n_cols) — SB3 predict() accepts single obs
+            without a batch dimension.
+
+        Falls back to (WINDOW_SIZE, all_features) if model has no obs_space.
+        """
+        numeric = featured_df.select_dtypes(include=[np.number])
+
+        # Resolve expected shape from the model's observation space
+        obs_space = getattr(model, "observation_space", None)
+        if obs_space is not None and hasattr(obs_space, "shape") and len(obs_space.shape) == 2:
+            window_size, n_cols = int(obs_space.shape[0]), int(obs_space.shape[1])
+            logger.debug(
+                "Model obs_space.shape=%s — using window=%d, n_cols=%d",
+                obs_space.shape, window_size, n_cols,
+            )
+        else:
+            # Fallback: use config defaults, no column trimming
+            window_size = WINDOW_SIZE
+            n_cols = numeric.shape[1]
+            logger.debug("No 2D obs_space found; falling back to window=%d, n_cols=%d", window_size, n_cols)
+
+        # Take the last window_size rows
+        window = numeric.iloc[-window_size:].values.astype(np.float32)
+
+        current_cols = window.shape[1]
+        if current_cols > n_cols:
+            # Pipeline grew more features than the model was trained on — trim.
+            logger.debug(
+                "Trimming obs features: pipeline=%d, model expects=%d",
+                current_cols, n_cols,
+            )
+            window = window[:, :n_cols]
+        elif current_cols < n_cols:
+            # Fewer features than expected — zero-pad the right side.
+            logger.warning(
+                "Padding obs features: pipeline=%d < model expects=%d — check pipeline.",
+                current_cols, n_cols,
+            )
+            pad = np.zeros((window_size, n_cols - current_cols), dtype=np.float32)
+            window = np.hstack([window, pad])
+
+        return window  # shape (window_size, n_cols)
 
     def _aggregate_votes(
         self, votes: list[Action]
