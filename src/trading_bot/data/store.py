@@ -1,28 +1,44 @@
 """
-SQLite-backed data store using SQLAlchemy.
+SQLAlchemy-backed data store.
 
-Persists OHLCV price data and Gemini sentiment cache so we avoid
-redundant API calls across runs.
+Resolves the database URL in this priority order:
+1. DATABASE_URL environment variable (Supabase / any PostgreSQL)
+2. db_path constructor argument (SQLite file path)
+3. Default SQLite at CACHE_DIR/trading_bot.db
+
+The postgres:// → postgresql:// rewrite handles Supabase connection strings
+which use the legacy scheme that SQLAlchemy 1.4+ no longer accepts.
 """
 
 import hashlib
+import json
 import logging
+import os
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import (
     Column,
     Date,
     Float,
     Integer,
     String,
+    Text,
     create_engine,
+    desc,
     select,
 )
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from trading_bot.config import CACHE_DIR
+
+load_dotenv()
+
+if TYPE_CHECKING:
+    from trading_bot.inference.signal import Signal
 
 logger = logging.getLogger(__name__)
 
@@ -60,22 +76,65 @@ class SentimentCache(_Base):
     raw_response = Column(String(512), nullable=True)
 
 
+class SignalRecord(_Base):
+    """Persists every inference signal for accuracy tracking and the dashboard."""
+
+    __tablename__ = "signals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    signal_id = Column(String(16), nullable=False, unique=True, index=True)
+    ticker = Column(String(32), nullable=False, index=True)
+    action = Column(String(8), nullable=False)
+    confidence = Column(String(8), nullable=False)
+    generated_at = Column(String(32), nullable=False, index=True)
+    current_price = Column(Float, nullable=False)
+    entry_low = Column(Float, nullable=False)
+    entry_high = Column(Float, nullable=False)
+    stop_loss = Column(Float, nullable=False)
+    target = Column(Float, nullable=False)
+    risk_reward_ratio = Column(Float, nullable=False)
+    sentiment_score = Column(Float, nullable=False)
+    sentiment_label = Column(String(16), nullable=False)
+    market_regime = Column(Integer, nullable=False)
+    atr_14 = Column(Float, nullable=False)
+    votes = Column(Text, nullable=False)   # JSON-encoded dict
+    vote_count = Column(Integer, nullable=False)
+    model_run_name = Column(String(64), nullable=False, default="")
+    notes = Column(Text, nullable=False, default="")
+
+
 class DataStore:
-    """Thin wrapper around an SQLite database for price and sentiment data."""
+    """Database-backed data store (PostgreSQL via DATABASE_URL or SQLite fallback)."""
 
     def __init__(self, db_path: Path | None = None) -> None:
         """
         Initialise the data store.
 
+        Resolution order for the database URL:
+        1. DATABASE_URL env var (Supabase / PostgreSQL) — takes priority over db_path.
+        2. db_path argument — explicit SQLite file path.
+        3. Default SQLite at CACHE_DIR/trading_bot.db.
+
         Args:
-            db_path: Path to the SQLite file. Defaults to CACHE_DIR/trading_bot.db.
+            db_path: SQLite file path used only when DATABASE_URL is not set.
         """
-        if db_path is None:
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            db_path = CACHE_DIR / "trading_bot.db"
-        self._engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        db_url = os.getenv("DATABASE_URL", "")
+
+        if db_url:
+            # Supabase (and some other hosts) emit postgres:// which SQLAlchemy
+            # 1.4+ rejects — rewrite to the canonical postgresql:// scheme.
+            if db_url.startswith("postgres://"):
+                db_url = db_url.replace("postgres://", "postgresql://", 1)
+            self._engine = create_engine(db_url, echo=False)
+            logger.info("DataStore connected to PostgreSQL via DATABASE_URL.")
+        else:
+            if db_path is None:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                db_path = CACHE_DIR / "trading_bot.db"
+            self._engine = create_engine(f"sqlite:///{db_path}", echo=False)
+            logger.debug("DataStore initialised at SQLite: %s", db_path)
+
         _Base.metadata.create_all(self._engine)
-        logger.debug("DataStore initialised at %s", db_path)
 
     # ── Price Data ─────────────────────────────────────────────────────────────
 
@@ -225,3 +284,95 @@ class DataStore:
             }
             for r in rows
         ]
+
+    # ── Signal Store ───────────────────────────────────────────────────────────
+
+    def save_signal(self, signal: "Signal") -> None:
+        """
+        Persist an inference Signal.  Skips if the signal_id already exists
+        (idempotent — safe to call multiple times for the same signal).
+
+        Args:
+            signal: Signal dataclass from the inference pipeline.
+        """
+        d = signal.to_dict()
+        with Session(self._engine) as session:
+            existing = session.execute(
+                select(SignalRecord).where(SignalRecord.signal_id == signal.signal_id)
+            ).scalar_one_or_none()
+            if existing is not None:
+                return
+            session.add(
+                SignalRecord(
+                    signal_id=signal.signal_id,
+                    ticker=d["ticker"],
+                    action=d["action"],
+                    confidence=d["confidence"],
+                    generated_at=d["generated_at"],
+                    current_price=d["current_price"],
+                    entry_low=d["entry_low"],
+                    entry_high=d["entry_high"],
+                    stop_loss=d["stop_loss"],
+                    target=d["target"],
+                    risk_reward_ratio=d["risk_reward_ratio"],
+                    sentiment_score=d["sentiment_score"],
+                    sentiment_label=d["sentiment_label"],
+                    market_regime=d["market_regime"],
+                    atr_14=d["atr_14"],
+                    votes=json.dumps(d["votes"]),
+                    vote_count=d["vote_count"],
+                    model_run_name=d.get("model_run_name", ""),
+                    notes=d.get("notes", ""),
+                )
+            )
+            session.commit()
+        logger.debug("Saved signal %s for %s", signal.signal_id, signal.ticker)
+
+    def load_signals(
+        self,
+        ticker: str | None = None,
+        limit: int = 200,
+    ) -> pd.DataFrame:
+        """
+        Load recent signals, optionally filtered by ticker.
+
+        Args:
+            ticker: If provided, filter to this ticker only.
+            limit: Maximum rows returned, newest first.
+
+        Returns:
+            DataFrame with one row per signal.  Empty if no data.
+        """
+        with Session(self._engine) as session:
+            stmt = select(SignalRecord).order_by(desc(SignalRecord.generated_at)).limit(limit)
+            if ticker:
+                stmt = stmt.where(SignalRecord.ticker == ticker)
+            rows = session.execute(stmt).scalars().all()
+
+        if not rows:
+            return pd.DataFrame()
+
+        records = []
+        for r in rows:
+            rec = {
+                "signal_id": r.signal_id,
+                "ticker": r.ticker,
+                "action": r.action,
+                "confidence": r.confidence,
+                "generated_at": r.generated_at,
+                "current_price": r.current_price,
+                "entry_low": r.entry_low,
+                "entry_high": r.entry_high,
+                "stop_loss": r.stop_loss,
+                "target": r.target,
+                "risk_reward_ratio": r.risk_reward_ratio,
+                "sentiment_score": r.sentiment_score,
+                "sentiment_label": r.sentiment_label,
+                "market_regime": r.market_regime,
+                "atr_14": r.atr_14,
+                "votes": json.loads(r.votes) if r.votes else {},
+                "vote_count": r.vote_count,
+            }
+            records.append(rec)
+
+        return pd.DataFrame(records)
