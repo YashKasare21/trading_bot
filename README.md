@@ -1,108 +1,120 @@
-# AI Stock Trading Bot
+# AI Trading Bot — NSE/Nifty50
 
-# AI-Powered Stock Trading Bot
+> **Status: Phase 1 — Foundation**
 
-This project develops an advanced AI-powered stock trading bot leveraging **Stable-Baselines3** for reinforcement learning, **Gymnasium** (formerly OpenAI Gym) for environment simulation, and **Streamlit** for an interactive web application. The bot is designed to learn optimal trading strategies within a custom-built trading environment and provides a user-friendly interface for real-time analysis and simulation.
+A personal AI-powered trading system for Indian stock markets (NSE/Nifty50).
+Post-3:30pm IST, the system ingests EOD market data + news sentiment, runs ensemble RL inference,
+and delivers a structured signal (BUY/SELL/HOLD + entry/stop/target) via Telegram.
 
-## Key Features
+## Architecture
 
--   **Custom Trading Environment**: A robust, Gymnasium-compatible `StockTradingEnv` for realistic stock market simulations.
--   **Reinforcement Learning Integration**: Employs Stable-Baselines3 to train a Proximal Policy Optimization (PPO) agent, enabling the bot to develop sophisticated trading strategies.
--   **Dynamic Data Acquisition**: Seamlessly fetches real-time and historical stock data via the `yfinance` library.
--   **Comprehensive Technical Analysis**: Integrates the `ta` library to generate a wide array of technical indicators, enriching the observation space for the AI.
--   **Advanced Sentiment Analysis**: Incorporates the Gemini API to analyze news sentiment, providing crucial market insights.
--   **Interactive Web Application**: A user-friendly Streamlit interface for visualizing trading performance, conducting backtests, and interacting with the AI bot.
-
-## Project Structure
-
--   `training_colab.py`: Defines the custom `StockTradingEnv` and includes the script for training the PPO agent.
--   `streamlit_app.py`: The core Streamlit application, providing the interactive user interface for running simulations and visualizing trading outcomes.
--   `gemini_utils.py`: Contains essential utility functions for integrating and interacting with the Gemini API for sentiment analysis.
--   `config.py`: Centralized configuration file managing key parameters such as API keys, default dates, and model paths.
--   `requirements.txt`: Lists all necessary Python dependencies for the project.
--   `data.csv`: A sample dataset for initial setup and testing (the application primarily uses live data fetching).
--   `trading_bot_model_PPO.zip`: The pre-trained PPO model, ready for deployment within the Streamlit application.
-
-## Setup and Installation
-
-Follow these steps to set up and run the project locally:
-
-1.  **Clone the Repository**
-    If you haven't already, clone the project repository to your local machine:
-    ```bash
-    git clone https://github.com/YashKasare21/trading_bot.git
-    cd trading_bot
-    ```
-
-2.  **Create and Activate a Virtual Environment**
-    It is highly recommended to use a virtual environment to manage dependencies:
-    ```bash
-    python -m venv venv
-    # On Windows:
-    .\venv\Scripts\activate
-    # On macOS/Linux:
-    source venv/bin/activate
-    ```
-
-3.  **Install Dependencies**
-    Install all required Python packages using `pip`:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Configure Gemini API Key**
-    This application utilizes the Gemini API for sentiment analysis. Obtain your API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
-    
-    During the Streamlit application runtime, you will be prompted to enter your Gemini API key directly within the sidebar. This ensures secure handling of your credentials.
-
-## How to Run the Application
-
-Once the setup is complete, you can launch the Streamlit web application:
-
-1.  **Activate your virtual environment** (if not already active).
-
-2.  **Execute the Streamlit command** from the project root directory:
-    ```bash
-    streamlit run streamlit_app.py
-    ```
-
-3.  **Access the Application**: Your default web browser should automatically open to the Streamlit interface (typically at `http://localhost:8501`). If it doesn't, manually navigate to this URL.
-
-## Training the AI Agent (Optional)
-
-For users interested in retraining the PPO agent or customizing the training methodology, the `training_colab.py` script is provided. While optimized for environments like Google Colab, it can also be executed locally:
-
-```bash
-python training_colab.py
+```
+yfinance (OHLCV)          NewsAPI (headlines)
+       │                         │
+       ▼                         ▼
+  data/fetcher.py         data/sentiment.py
+       │                    (Gemini API)
+       └──────────┬──────────────┘
+                  ▼
+         features/pipeline.py
+         (TA + Fourier + HMM + Sentiment)
+                  │
+         ┌────────┴────────┐
+         ▼                 ▼
+   [Training]         [Inference]
+  Colab notebook    inference/predictor.py
+  PPO + SAC             │
+                        ▼
+               inference/notifier.py
+               (Telegram signal delivery)
 ```
 
-**Note**: Agent training is a computationally intensive process. Utilizing a GPU is highly recommended to significantly accelerate training times.
+## Setup
 
-## Troubleshooting Common Issues
+```bash
+git clone https://github.com/YashKasare21/trading_bot.git
+cd trading_bot
+cp .env.example .env
+# Fill in API keys in .env
+pip install uv
+uv pip install -e ".[dev]"
+```
 
--   **`ImportError: cannot import name 'get_distribution' from 'pkg_resources'`**:
-    This error often points to an outdated `setuptools` package. Resolve it by upgrading:
-    ```bash
-    pip install --upgrade setuptools
-    ```
+## Running Tests
 
--   **`ImportError: cannot import name 'gym' from 'gymnasium'`**:
-    Ensure that `shimmy` is installed and your Gymnasium environment is correctly configured:
-    ```bash
-    pip install shimmy
-    ```
+```bash
+pytest tests/ -v --cov=src/trading_bot --cov-report=term-missing
+```
 
--   **`yfinance` Data Fetching Problems**:
-    Verify your internet connection. Issues can sometimes arise from `yfinance` itself; try alternative ticker symbols or adjust date ranges.
+## Training (Google Colab only)
 
--   **`'str' object has no attribute 'get'`**:
-    This error suggests that the `get_gemini_sentiment` function in `gemini_utils.py` is returning a string instead of the expected dictionary. Confirm that the function's output includes `sentiment_label`, `sentiment_score`, and `summary` keys.
+Open `notebooks/03_training_colab.ipynb` in Google Colab.
+Add `GEMINI_API_KEY` and `NEWS_API_KEY` to Colab Secrets.
+Run all cells. Models are saved to your Google Drive.
 
--   **Observation Shape Mismatch Errors**:
-    If you encounter errors related to inconsistent observation shapes, review the `num_total_features` calculation within the `StockTradingEnv`'s `__init__` method. Ensure it accurately reflects the total number of features in your `data` DataFrame, especially after the integration of technical indicators and sentiment scores.
+> **Never run training locally** — torch/stable-baselines3 are Colab-only dependencies.
 
-## StreamLit Link : https://tradingbot-yy4uppgmzsddxunyrnoemb.streamlit.app/
+## Folder Structure
 
-## License
+```
+trading_bot/
+├── .github/workflows/ci.yml        # pytest + ruff on every push
+├── src/trading_bot/
+│   ├── config.py                   # all constants, env var loading
+│   ├── data/
+│   │   ├── fetcher.py              # yfinance NSE data fetcher (with SQLite cache)
+│   │   ├── sentiment.py            # Gemini batch sentiment scorer + SQLite cache
+│   │   └── store.py                # SQLAlchemy SQLite data store
+│   ├── features/
+│   │   ├── pipeline.py             # FeaturePipeline (THE shared class)
+│   │   ├── technical.py            # ta library wrapper (80+ indicators)
+│   │   ├── fourier.py              # FFT cycle features
+│   │   └── regime.py               # HMM market regime detector
+│   ├── env/
+│   │   ├── trading_env.py          # StockTradingEnv v2 (continuous Box action space)
+│   │   └── reward.py               # Sharpe + drawdown reward functions
+│   ├── models/                     # train.py + tune.py (Phase 3)
+│   ├── backtest/                   # engine.py + metrics.py (Phase 2)
+│   ├── inference/                  # predictor + scheduler + notifier (Phase 4)
+├── notebooks/
+│   ├── 01_data_exploration.ipynb
+│   ├── 02_feature_engineering.ipynb
+│   ├── 03_training_colab.ipynb     # GPU training — runs on Colab
+│   └── 04_backtest_analysis.ipynb
+├── tests/
+│   ├── conftest.py
+│   ├── test_env.py
+│   ├── test_features.py
+│   └── test_inference.py
+├── dashboard/app.py                # Streamlit signal dashboard (Phase 5)
+├── data/                           # gitignored — cache, models, SQLite
+├── .env.example
+├── pyproject.toml
+└── README.md
+```
 
-This project is distributed under the MIT License. See the `LICENSE` file for more details.
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Data | yfinance, NewsAPI |
+| Sentiment | Google Gemini 2.0 Flash |
+| Features | ta, numpy (FFT), hmmlearn (HMM) |
+| RL Training | stable-baselines3 (PPO + SAC), Gymnasium |
+| Hyperparameter Tuning | Optuna |
+| Backtesting | vectorbt, quantstats |
+| Scheduling | APScheduler |
+| Signals | python-telegram-bot |
+| Storage | SQLAlchemy + SQLite |
+| Package Manager | uv |
+| CI | GitHub Actions (ruff + pytest) |
+
+## Phases
+
+| Phase | Status | Description |
+|---|---|---|
+| 1 | ✅ Current | Foundation — scaffold, FeaturePipeline, env v2, CI |
+| 2 | Planned | Real sentiment pipeline, backtesting metrics |
+| 3 | Planned | Multi-algo training, Optuna tuning, walk-forward validation |
+| 4 | Planned | Inference engine, APScheduler, Telegram bot |
+| 5 | Planned | LSTM policy, multi-stock, MLflow tracking |
