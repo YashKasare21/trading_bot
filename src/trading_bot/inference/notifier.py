@@ -13,7 +13,7 @@ from typing import Any
 import requests
 
 from trading_bot.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-from trading_bot.inference.signal import Confidence, Signal
+from trading_bot.inference.signal import Signal
 
 logger = logging.getLogger(__name__)
 

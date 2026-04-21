@@ -171,6 +171,7 @@ class TestSignalDispatcher:
 
     def test_returns_false_on_request_exception(self):
         import requests as req_lib
+
         from trading_bot.inference.notifier import SignalDispatcher
         dispatcher = SignalDispatcher(bot_token="tok", chat_id="123")
         sig = _make_signal(Action.BUY, Confidence.MEDIUM)
