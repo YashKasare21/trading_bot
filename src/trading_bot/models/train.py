@@ -141,8 +141,7 @@ def build_env(featured_df: "pd.DataFrame", config: TrainingConfig, normalize: bo
         When normalize=True, both elements are the VecNormalize instance
         (which IS the training env).
     """
-    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize  # lazy
-
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize  # lazy  # noqa: I001
     from trading_bot.env.trading_env import StockTradingEnv
 
     def _make_env():
