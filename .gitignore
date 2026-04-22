@@ -4,9 +4,10 @@
 
 # Data directories
 data/cache/
-data/models/
+data/models/*
 !data/cache/.gitkeep
 !data/models/.gitkeep
+!data/models/registry.json
 
 # Data files
 *.parquet
