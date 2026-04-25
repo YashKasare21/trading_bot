@@ -20,7 +20,6 @@ import numpy as np
 import pandas as pd
 
 from trading_bot.config import MODEL_DIR, TIMEZONE, WINDOW_SIZE
-from trading_bot.inference.risk import RiskManager
 from trading_bot.inference.signal import Action, Confidence, Signal
 
 if TYPE_CHECKING:
@@ -143,6 +142,34 @@ class EnsemblePredictor:
 
         # 5. Aggregate votes
         action, confidence, vote_count = self._aggregate_votes([a2c_vote, ppo_vote, rsi_vote])
+
+        # 6. Price levels from ATR-14
+        from trading_bot.inference.risk import RiskManager
+
+        current_price = float(df["Close"].iloc[-1])
+        atr = self._compute_atr(df, window=14)
+        risk_mgr = RiskManager()
+        risk_levels = risk_mgr.calculate(current_price, atr, action)
+        levels = {
+            "entry_low": risk_levels.entry_low,
+            "entry_high": risk_levels.entry_high,
+            "stop_loss": risk_levels.stop_loss,
+            "target": risk_levels.target_price,
+            "risk_reward_ratio": risk_levels.risk_reward_ratio,
+        }
+
+        # 7. Context
+        sentiment_score = 0.0
+        sentiment_label = "Neutral"
+        if sentiment_df is not None and not sentiment_df.empty:
+            sentiment_score = float(sentiment_df["sentiment_score"].iloc[-1])
+            sentiment_label = (
+                "Positive"
+                if sentiment_score > 0.1
+                else "Negative"
+                if sentiment_score < -0.1
+                else "Neutral"
+            )
 
         regime = 1  # default sideways
         if "regime" in featured_df.columns:
@@ -386,7 +413,7 @@ class EnsemblePredictor:
             return getattr(self, attr)
 
         try:
-            from stable_baselines3 import PPO, A2C  # noqa: F401 — lazy
+            from stable_baselines3 import A2C, PPO  # noqa: F401 — lazy
 
             from trading_bot.models.train import get_model_class
 
