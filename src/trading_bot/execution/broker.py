@@ -10,8 +10,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy import Column, Float, Integer, String, create_engine, delete, select
+from sqlalchemy.orm import Session, declarative_base
 
 from trading_bot.config import CACHE_DIR
 from trading_bot.inference.signal import Action, Confidence, Signal
@@ -23,61 +23,41 @@ logger = logging.getLogger(__name__)
 
 _INVESTMENT_AMOUNT = 100_000.0
 
+Base = declarative_base()
 
-class OpenPosition:
+
+class OpenPosition(Base):
     """SQLAlchemy model for open_positions table."""
 
-    def __init__(
-        self,
-        id: int | None,
-        ticker: str,
-        trade_type: str,
-        entry_price: float,
-        quantity: int,
-        stop_loss: float,
-        target: float,
-        confidence: str,
-        entry_date: str,
-    ) -> None:
-        self.id = id
-        self.ticker = ticker
-        self.trade_type = trade_type
-        self.entry_price = entry_price
-        self.quantity = quantity
-        self.stop_loss = stop_loss
-        self.target = target
-        self.confidence = confidence
-        self.entry_date = entry_date
+    __tablename__ = "open_positions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, nullable=False)
+    trade_type = Column(String, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    quantity = Column(Integer, nullable=False)
+    stop_loss = Column(Float, nullable=False)
+    target = Column(Float, nullable=False)
+    confidence = Column(String, nullable=False)
+    entry_date = Column(String, nullable=False)
 
 
-class TradeHistory:
+class TradeHistory(Base):
     """SQLAlchemy model for trade_history table."""
 
-    def __init__(
-        self,
-        id: int | None,
-        ticker: str,
-        trade_type: str,
-        entry_price: float,
-        exit_price: float,
-        quantity: int,
-        pnl: float,
-        pnl_percentage: float,
-        entry_date: str,
-        exit_date: str,
-        exit_reason: str,
-    ) -> None:
-        self.id = id
-        self.ticker = ticker
-        self.trade_type = trade_type
-        self.entry_price = entry_price
-        self.exit_price = exit_price
-        self.quantity = quantity
-        self.pnl = pnl
-        self.pnl_percentage = pnl_percentage
-        self.entry_date = entry_date
-        self.exit_date = exit_date
-        self.exit_reason = exit_reason
+    __tablename__ = "trade_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, nullable=False)
+    trade_type = Column(String, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    exit_price = Column(Float, nullable=False)
+    quantity = Column(Integer, nullable=False)
+    pnl = Column(Float, nullable=False)
+    pnl_percentage = Column(Float, nullable=False)
+    entry_date = Column(String, nullable=False)
+    exit_date = Column(String, nullable=False)
+    exit_reason = Column(String, nullable=False)
 
 
 class VirtualBroker:
@@ -98,44 +78,7 @@ class VirtualBroker:
             self._engine = create_engine(f"sqlite:///{db_path}", echo=False)
             logger.debug("VirtualBroker initialised at SQLite: %s", db_path)
 
-        self._create_tables()
-
-    def _create_tables(self) -> None:
-        from sqlalchemy import Column, Float, Integer, MetaData, String, Table
-
-        metadata = MetaData()
-
-        Table(
-            "open_positions",
-            metadata,
-            Column("id", Integer, primary_key=True, autoincrement=True),
-            Column("ticker", String, nullable=False),
-            Column("trade_type", String, nullable=False),
-            Column("entry_price", Float, nullable=False),
-            Column("quantity", Integer, nullable=False),
-            Column("stop_loss", Float, nullable=False),
-            Column("target", Float, nullable=False),
-            Column("confidence", String, nullable=False),
-            Column("entry_date", String, nullable=False),
-        )
-
-        Table(
-            "trade_history",
-            metadata,
-            Column("id", Integer, primary_key=True, autoincrement=True),
-            Column("ticker", String, nullable=False),
-            Column("trade_type", String, nullable=False),
-            Column("entry_price", Float, nullable=False),
-            Column("exit_price", Float, nullable=False),
-            Column("quantity", Integer, nullable=False),
-            Column("pnl", Float, nullable=False),
-            Column("pnl_percentage", Float, nullable=False),
-            Column("entry_date", String, nullable=False),
-            Column("exit_date", String, nullable=False),
-            Column("exit_reason", String, nullable=False),
-        )
-
-        metadata.create_all(self._engine)
+        Base.metadata.create_all(self._engine)
 
     def process_eod(
         self,
@@ -157,21 +100,7 @@ class VirtualBroker:
     def _check_exits(self, prices: dict[str, float], today_str: str) -> None:
         """Check targets and stop-losses for open positions."""
         with Session(self._engine) as session:
-            result = session.execute(select(OpenPosition))
-            positions = [
-                OpenPosition(
-                    id=row[0],
-                    ticker=row[1],
-                    trade_type=row[2],
-                    entry_price=row[3],
-                    quantity=row[4],
-                    stop_loss=row[5],
-                    target=row[6],
-                    confidence=row[7],
-                    entry_date=row[8],
-                )
-                for row in result.fetchall()
-            ]
+            positions = session.execute(select(OpenPosition)).scalars().all()
 
         for pos in positions:
             current_price = prices.get(pos.ticker)
@@ -207,11 +136,10 @@ class VirtualBroker:
         )
 
         with Session(self._engine) as session:
-            session.execute("DELETE FROM open_positions WHERE id = :id", {"id": pos.id})
+            session.execute(delete(OpenPosition).where(OpenPosition.id == pos.id))
 
             session.add(
                 TradeHistory(
-                    id=None,
                     ticker=pos.ticker,
                     trade_type=pos.trade_type,
                     entry_price=pos.entry_price,
@@ -244,8 +172,9 @@ class VirtualBroker:
     ) -> None:
         """Execute new entry signals as BUY orders."""
         with Session(self._engine) as session:
-            result = session.execute(select(OpenPosition))
-            open_tickers = {row[1] for row in result.fetchall()}
+            open_tickers = {
+                row.ticker for row in session.execute(select(OpenPosition)).scalars().all()
+            }
 
         for signal in signals:
             if signal.action != Action.BUY:
@@ -266,7 +195,6 @@ class VirtualBroker:
             with Session(self._engine) as session:
                 session.add(
                     OpenPosition(
-                        id=None,
                         ticker=signal.ticker,
                         trade_type="BUY",
                         entry_price=current_price,
