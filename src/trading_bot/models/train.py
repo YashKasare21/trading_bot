@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class TrainingConfig:
     """All hyperparameters for a single training run."""
 
-    algo: str = "SAC"                    # "PPO", "SAC", "TD3"
+    algo: str = "SAC"  # "PPO", "SAC", "TD3"
     ticker: str = "^NSEI"
     train_start: date = field(default_factory=lambda: date(2018, 1, 1))
     train_end: date = field(default_factory=lambda: date(2022, 12, 31))
@@ -47,7 +47,7 @@ class TrainingConfig:
     buffer_size: int = 100_000
     learning_starts: int = 1000
     tau: float = 0.005
-    ent_coef_sac: str = "auto"       # SAC entropy coef (auto-tuned)
+    ent_coef_sac: str = "auto"  # SAC entropy coef (auto-tuned)
 
     # TD3-specific
     policy_delay: int = 2
@@ -56,7 +56,7 @@ class TrainingConfig:
     # Checkpointing
     checkpoint_freq: int = 50_000
     save_dir: Path = field(default_factory=lambda: Path("data/models"))
-    run_name: str = ""               # auto-generated if empty: "{algo}_{ticker}_{date}"
+    run_name: str = ""  # auto-generated if empty: "{algo}_{ticker}_{date}"
 
     def __post_init__(self):
         # Coerce save_dir to Path in case a str was passed
@@ -75,6 +75,7 @@ class TrainingConfig:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _config_to_json_safe(config: TrainingConfig) -> dict:
     """Convert TrainingConfig to a JSON-serialisable dict."""
     raw = dataclasses.asdict(config)
@@ -87,6 +88,7 @@ def _config_to_json_safe(config: TrainingConfig) -> dict:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def get_model_class(algo: str) -> type:
     """
@@ -108,14 +110,13 @@ def get_model_class(algo: str) -> type:
 
     mapping = {
         "PPO": sb3.PPO,
+        "A2C": sb3.A2C,
         "SAC": sb3.SAC,
         "TD3": sb3.TD3,
     }
     key = algo.upper()
     if key not in mapping:
-        raise ValueError(
-            f"Unknown algo '{algo}'. Supported: {list(mapping.keys())}"
-        )
+        raise ValueError(f"Unknown algo '{algo}'. Supported: {list(mapping.keys())}")
     return mapping[key]
 
 
@@ -201,9 +202,7 @@ def train_agent(
     train_df = featured_df.iloc[:split_idx].reset_index(drop=True)
     eval_df = featured_df.iloc[split_idx:].reset_index(drop=True)
 
-    logger.info(
-        "Training split: %d rows | Eval split: %d rows", len(train_df), len(eval_df)
-    )
+    logger.info("Training split: %d rows | Eval split: %d rows", len(train_df), len(eval_df))
 
     # ------------------------------------------------------------------
     # 2. Build environments
@@ -287,9 +286,7 @@ def train_agent(
     # ------------------------------------------------------------------
     # 6. Train
     # ------------------------------------------------------------------
-    logger.info(
-        "Starting training: algo=%s, timesteps=%d", config.algo, config.total_timesteps
-    )
+    logger.info("Starting training: algo=%s, timesteps=%d", config.algo, config.total_timesteps)
     model.learn(
         total_timesteps=config.total_timesteps,
         callback=[checkpoint_cb, eval_cb, progress_cb],
@@ -364,8 +361,7 @@ def _collect_portfolio_values(
 
     if not portfolio_values:
         logger.warning(
-            "No 'portfolio_value' key found in env info dict; "
-            "returning empty list for metrics."
+            "No 'portfolio_value' key found in env info dict; returning empty list for metrics."
         )
 
     return portfolio_values

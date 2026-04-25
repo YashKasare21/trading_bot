@@ -1,7 +1,7 @@
 """
 EnsemblePredictor — core inference engine.
 
-Loads production SAC + PPO models from ModelRegistry, runs both alongside a
+Loads production A2C + PPO models from ModelRegistry, runs both alongside a
 rule-based RSI strategy, and generates a Signal when ≥ 2 of 3 votes agree.
 
 Heavy dependencies (torch, stable_baselines3) are lazy-imported inside
@@ -37,7 +37,7 @@ _SELL_THRESHOLD = -0.1
 
 class EnsemblePredictor:
     """
-    Runs SAC + PPO + RSI ensemble to produce a daily trading Signal.
+    Runs A2C + PPO + RSI ensemble to produce a daily trading Signal.
 
     Models are loaded lazily on the first call to predict() to keep
     import time short and avoid errors on machines without sb3/torch.
@@ -68,7 +68,7 @@ class EnsemblePredictor:
         self._pipeline_path = Path(pipeline_path) if pipeline_path else None
 
         # Lazy-loaded attributes — set on first call to _load_models()
-        self._sac_model = None
+        self._a2c_model = None
         self._ppo_model = None
         self._pipeline = None
         self._models_loaded = False
@@ -128,45 +128,21 @@ class EnsemblePredictor:
         if featured_df.empty or len(featured_df) < WINDOW_SIZE:
             logger.warning(
                 "Insufficient featured rows for %s (%d < %d).",
-                ticker, len(featured_df), WINDOW_SIZE,
+                ticker,
+                len(featured_df),
+                WINDOW_SIZE,
             )
             return self._hold_signal(ticker, {}, 0.0, "Neutral", 0)
 
         # 4. Ensemble votes
-        sac_vote = self._vote_rl("SAC", featured_df)
+        a2c_vote = self._vote_rl("A2C", featured_df)
         ppo_vote = self._vote_rl("PPO", featured_df)
         rsi_vote = self._predict_rsi(featured_df)
-        votes = {"SAC": sac_vote.value, "PPO": ppo_vote.value, "RSI": rsi_vote.value}
+        votes = {"A2C": a2c_vote.value, "PPO": ppo_vote.value, "RSI": rsi_vote.value}
         logger.info("Votes for %s: %s", ticker, votes)
 
         # 5. Aggregate votes
-        action, confidence, vote_count = self._aggregate_votes(
-            [sac_vote, ppo_vote, rsi_vote]
-        )
-
-        # 6. Price levels from ATR-14
-        current_price = float(df["Close"].iloc[-1])
-        atr = self._compute_atr(df, window=14)
-        risk_mgr = RiskManager()
-        risk_levels = risk_mgr.calculate(current_price, atr, action)
-        levels = {
-            "entry_low": risk_levels.entry_low,
-            "entry_high": risk_levels.entry_high,
-            "stop_loss": risk_levels.stop_loss,
-            "target": risk_levels.target_price,
-            "risk_reward_ratio": risk_levels.risk_reward_ratio,
-        }
-
-        # 7. Context
-        sentiment_score = 0.0
-        sentiment_label = "Neutral"
-        if sentiment_df is not None and not sentiment_df.empty:
-            sentiment_score = float(sentiment_df["sentiment_score"].iloc[-1])
-            sentiment_label = (
-                "Positive" if sentiment_score > 0.1
-                else "Negative" if sentiment_score < -0.1
-                else "Neutral"
-            )
+        action, confidence, vote_count = self._aggregate_votes([a2c_vote, ppo_vote, rsi_vote])
 
         regime = 1  # default sideways
         if "regime" in featured_df.columns:
@@ -307,13 +283,17 @@ class EnsemblePredictor:
             window_size, n_cols = int(obs_space.shape[0]), int(obs_space.shape[1])
             logger.debug(
                 "Model obs_space.shape=%s — using window=%d, n_cols=%d",
-                obs_space.shape, window_size, n_cols,
+                obs_space.shape,
+                window_size,
+                n_cols,
             )
         else:
             # Fallback: use config defaults, no column trimming
             window_size = WINDOW_SIZE
             n_cols = numeric.shape[1]
-            logger.debug("No 2D obs_space found; falling back to window=%d, n_cols=%d", window_size, n_cols)
+            logger.debug(
+                "No 2D obs_space found; falling back to window=%d, n_cols=%d", window_size, n_cols
+            )
 
         # Take the last window_size rows
         window = numeric.iloc[-window_size:].values.astype(np.float32)
@@ -323,23 +303,23 @@ class EnsemblePredictor:
             # Pipeline grew more features than the model was trained on — trim.
             logger.debug(
                 "Trimming obs features: pipeline=%d, model expects=%d",
-                current_cols, n_cols,
+                current_cols,
+                n_cols,
             )
             window = window[:, :n_cols]
         elif current_cols < n_cols:
             # Fewer features than expected — zero-pad the right side.
             logger.warning(
                 "Padding obs features: pipeline=%d < model expects=%d — check pipeline.",
-                current_cols, n_cols,
+                current_cols,
+                n_cols,
             )
             pad = np.zeros((window_size, n_cols - current_cols), dtype=np.float32)
             window = np.hstack([window, pad])
 
         return window  # shape (window_size, n_cols)
 
-    def _aggregate_votes(
-        self, votes: list[Action]
-    ) -> tuple[Action, Confidence, int]:
+    def _aggregate_votes(self, votes: list[Action]) -> tuple[Action, Confidence, int]:
         """Majority-vote aggregation returning (action, confidence, vote_count)."""
         buy_count = sum(1 for v in votes if v == Action.BUY)
         sell_count = sum(1 for v in votes if v == Action.SELL)
@@ -385,8 +365,8 @@ class EnsemblePredictor:
 
         path = self._pipeline_path
         if path is None:
-            # Try to find it via the production SAC record
-            record = self._registry.get_production_model("^NSEI", "SAC")
+            # Try to find it via the production A2C record
+            record = self._registry.get_production_model("^NSEI", "A2C")
             if record and record.pipeline_path:
                 path = Path(record.pipeline_path)
 
@@ -396,9 +376,7 @@ class EnsemblePredictor:
         else:
             # Fallback: fresh unfitted pipeline (transform will work for basic features)
             self._pipeline = FeaturePipeline(window_size=WINDOW_SIZE, fit_regime=False)
-            logger.warning(
-                "No pipeline path found; using fresh FeaturePipeline (regime disabled)."
-            )
+            logger.warning("No pipeline path found; using fresh FeaturePipeline (regime disabled).")
         return self._pipeline
 
     def _get_rl_model(self, algo: str):
@@ -408,7 +386,7 @@ class EnsemblePredictor:
             return getattr(self, attr)
 
         try:
-            from stable_baselines3 import PPO, SAC  # noqa: F401 — lazy
+            from stable_baselines3 import PPO, A2C  # noqa: F401 — lazy
 
             from trading_bot.models.train import get_model_class
 
@@ -428,9 +406,7 @@ class EnsemblePredictor:
             logger.info("Loaded %s model from %s (run: %s)", algo, model_path, record.run_name)
             return model
         except ImportError:
-            logger.info(
-                "stable_baselines3 not installed — %s vote defaults to HOLD.", algo
-            )
+            logger.info("stable_baselines3 not installed — %s vote defaults to HOLD.", algo)
             return None
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to load %s model: %s", algo, exc)
@@ -460,6 +436,6 @@ class EnsemblePredictor:
             sentiment_label=sentiment_label,
             market_regime=regime,
             atr_14=0.0,
-            votes=votes or {"SAC": "HOLD", "PPO": "HOLD", "RSI": "HOLD"},
+            votes=votes or {"A2C": "HOLD", "PPO": "HOLD", "RSI": "HOLD"},
             vote_count=0,
         )
