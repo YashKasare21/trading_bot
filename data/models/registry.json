@@ -24,7 +24,7 @@
     "train_start": "2018-01-01",
     "train_end": "2023-12-31",
     "total_timesteps": 500000,
-    "model_path": "../data/models/trading_bot_model_A2C.zip",
+    "model_path": "data/models/trading_bot_model_A2C.zip",
     "vec_norm_path": "",
     "pipeline_path": "",
     "feature_names": [],
