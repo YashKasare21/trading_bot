@@ -14,6 +14,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from trading_bot.config import NSE_TICKERS, TIMEZONE
+from trading_bot.execution.broker import VirtualBroker
 from trading_bot.inference.notifier import SignalDispatcher
 from trading_bot.inference.predictor import EnsemblePredictor
 
@@ -79,6 +80,11 @@ def run_daily_inference(
     for ticker, exc in errors:
         notifier.send_text(f"⚠️ Inference error for {ticker}: {exc}")
 
+    # ── Phase 3: execute entries/exits via VirtualBroker ────────────────────────
+    broker = VirtualBroker()
+    prices = {s.ticker: s.current_price for s in signals}
+    broker.process_eod(signals, prices)
+
     logger.info(
         "=== EOD inference complete — %d signals dispatched, %d errors ===",
         len(signals),
@@ -119,15 +125,13 @@ def start_scheduler(
         kwargs={"tickers": tickers, "registry_path": registry_path},
         id="eod_inference",
         name="EOD Nifty50 Inference",
-        misfire_grace_time=300,   # tolerate up to 5-min delay (e.g. system sleep)
-        coalesce=True,            # run once even if multiple fires were missed
-        replace_existing=True,    # prevent duplicate job if scheduler is restarted
-                                  # without stopping the previous instance first
+        misfire_grace_time=300,  # tolerate up to 5-min delay (e.g. system sleep)
+        coalesce=True,  # run once even if multiple fires were missed
+        replace_existing=True,  # prevent duplicate job if scheduler is restarted
+        # without stopping the previous instance first
     )
 
-    logger.info(
-        "Scheduler armed: EOD inference runs Mon–Fri at %02d:%02d IST.", hour, minute
-    )
+    logger.info("Scheduler armed: EOD inference runs Mon–Fri at %02d:%02d IST.", hour, minute)
 
     try:
         scheduler.start()
