@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 import requests
@@ -117,7 +117,11 @@ class SentimentAnalyzer:
                 # Retrieve from cache
                 entry = next(e for e in cached_entries if e["headline_hash"] == h)
                 results.append(
-                    {"label": entry["sentiment_label"], "score": entry["sentiment_score"], "raw": ""}
+                    {
+                        "label": entry["sentiment_label"],
+                        "score": entry["sentiment_score"],
+                        "raw": "",
+                    }
                 )
                 logger.debug("Cache hit for headline hash %s", h[:8])
                 continue
@@ -159,6 +163,9 @@ class SentimentAnalyzer:
         """
         Fetch headlines from NewsAPI for a date range and score them with Gemini.
 
+        Only fetches for the most recent date (end) to avoid API rate limits.
+        Historical dates are filled with 0.0.
+
         Args:
             ticker: NSE ticker symbol (used as search query keyword).
             start: First date.
@@ -175,20 +182,22 @@ class SentimentAnalyzer:
         # Strip NSE suffixes for a cleaner search query
         query = ticker.replace(".NS", "").replace("^", "")
         rows: list[dict] = []
-        current = start
 
-        while current <= end:
-            headlines = self._fetch_headlines_for_date(query, current)
+        # Only fetch news for the most recent date (live inference)
+        # Historical dates get 0.0 to avoid API rate limits
+        try:
+            headlines = self._fetch_headlines_for_date(query, end)
             if headlines:
-                score = self.get_daily_sentiment(ticker, current, headlines)
+                score = self.get_daily_sentiment(ticker, end, headlines)
                 rows.append(
                     {
-                        "date": current,
+                        "date": end,
                         "sentiment_score": score,
                         "headline_count": len(headlines),
                     }
                 )
-            current += timedelta(days=1)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NewsAPI error for %s on %s: %s — defaulting to 0.0", query, end, exc)
 
         df = pd.DataFrame(rows)
         if df.empty:
