@@ -8,6 +8,7 @@ Run from project root:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -16,6 +17,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, declarative_base
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,8 +37,37 @@ _IST = ZoneInfo("Asia/Kolkata")
 DB_PATH = ROOT / "data" / "cache" / "trading_bot.db"
 REGISTRY_PATH = ROOT / "data" / "models" / "registry.json"
 
+# ── SQLAlchemy models for Virtual Portfolio ───────────────────────────────────
+Base = declarative_base()
+
+
+class OpenPosition(Base):
+    __tablename__ = "open_positions"
+
+    id = __import__("sqlalchemy").Column(
+        __import__("sqlalchemy").Integer, primary_key=True, autoincrement=True
+    )
+    ticker = __import__("sqlalchemy").Column(__import__("sqlalchemy").String, nullable=False)
+    trade_type = __import__("sqlalchemy").Column(__import__("sqlalchemy").String, nullable=False)
+    entry_price = __import__("sqlalchemy").Column(__import__("sqlalchemy").Float, nullable=False)
+    quantity = __import__("sqlalchemy").Column(__import__("sqlalchemy").Integer, nullable=False)
+    stop_loss = __import__("sqlalchemy").Column(__import__("sqlalchemy").Float, nullable=False)
+    target = __import__("sqlalchemy").Column(__import__("sqlalchemy").Float, nullable=False)
+    confidence = __import__("sqlalchemy").Column(__import__("sqlalchemy").String, nullable=False)
+    entry_date = __import__("sqlalchemy").Column(__import__("sqlalchemy").String, nullable=False)
+
+
+def get_engine():
+    db_url = os.getenv("DATABASE_URL", "")
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    if db_url:
+        return create_engine(db_url, echo=False)
+    return create_engine(f"sqlite:///{DB_PATH}", echo=False)
+
 
 # ── Cached data loaders ────────────────────────────────────────────────────────
+
 
 @st.cache_data(ttl=300)
 def load_registry() -> list[dict]:
@@ -100,6 +132,37 @@ def load_ohlcv(ticker: str, days: int = 365) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=60)
+def load_open_positions() -> pd.DataFrame:
+    """
+    Load open positions from PostgreSQL/SQLite (cached 60 s).
+    """
+    try:
+        engine = get_engine()
+        with Session(engine) as session:
+            positions = session.execute(select(OpenPosition)).scalars().all()
+        if not positions:
+            return pd.DataFrame()
+        return pd.DataFrame(
+            [
+                {
+                    "id": p.id,
+                    "ticker": p.ticker,
+                    "trade_type": p.trade_type,
+                    "entry_price": p.entry_price,
+                    "quantity": p.quantity,
+                    "stop_loss": p.stop_loss,
+                    "target": p.target,
+                    "confidence": p.confidence,
+                    "entry_date": p.entry_date,
+                }
+                for p in positions
+            ]
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📈 AI Trading\nControl Room")
@@ -134,7 +197,7 @@ st.title("📈 AI Trading Control Room")
 st.caption("NSE / Nifty50 · End-of-Day Ensemble RL Inference · Personal System")
 st.divider()
 
-col_a, col_b, col_c = st.columns(3)
+col_a, col_b, col_c, col_d = st.columns(4)
 
 with col_a:
     st.markdown("### ⚡ Live Signals")
@@ -153,11 +216,33 @@ with col_b:
     st.page_link("pages/2_Backtest_Lab.py", label="Open Backtest Lab →")
 
 with col_c:
+    st.markdown("### 📊 Virtual Portfolio")
+    positions_df = load_open_positions()
+    if positions_df.empty:
+        st.info("No active trades currently open.")
+    else:
+        total_deployed = (positions_df["entry_price"] * positions_df["quantity"]).sum()
+        st.metric("Total Capital Deployed", f"₹{total_deployed:,.0f}")
+        st.dataframe(
+            positions_df.style.format(
+                {
+                    "entry_price": "₹{:.2f}",
+                    "stop_loss": "₹{:.2f}",
+                    "target": "₹{:.2f}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+with col_d:
     st.markdown("### 🗂️ Model Registry")
     if registry:
-        prod_df = pd.DataFrame(prod_models)[
-            ["run_name", "algo", "ticker", "created_at"]
-        ] if prod_models else pd.DataFrame(columns=["run_name", "algo", "ticker", "created_at"])
+        prod_df = (
+            pd.DataFrame(prod_models)[["run_name", "algo", "ticker", "created_at"]]
+            if prod_models
+            else pd.DataFrame(columns=["run_name", "algo", "ticker", "created_at"])
+        )
         st.dataframe(prod_df, use_container_width=True, hide_index=True)
     else:
         st.info("No models registered yet. Train and promote a model first.")

@@ -16,7 +16,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from app import load_ohlcv, load_registry, load_signals_df  # noqa: E402
+from app import load_registry, load_signals_df  # noqa: E402
 
 st.set_page_config(
     page_title="Backtest Lab · AI Trading",
@@ -36,8 +36,8 @@ def _run_rsi_backtest(ticker: str, start_str: str, end_str: str) -> dict:
         ohlcv (DataFrame), buy_dates, sell_dates, rsi (Series),
         portfolio_values (Series), bench_values (Series), metrics, bench_metrics.
     """
-    import numpy as np
     import ta
+
     from trading_bot.config import STT_RATE, TRANSACTION_COST_PCT
     from trading_bot.data.fetcher import MarketDataFetcher
 
