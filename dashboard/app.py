@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,12 +16,15 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, declarative_base
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+
+load_dotenv(ROOT / ".env")
 
 # ── Page config (must be first Streamlit call) ─────────────────────────────────
 st.set_page_config(
@@ -82,46 +84,33 @@ def load_registry() -> list[dict]:
 
 @st.cache_data(ttl=60)
 def load_signals_df(limit: int = 500) -> pd.DataFrame:
-    """
-    Load recent inference signals from SQLite (cached 60 s).
-
-    Returns an empty DataFrame if the DB or signals table is absent.
-    """
-    if not DB_PATH.exists():
-        return pd.DataFrame()
+    """Load recent inference signals via SQLAlchemy (cached 60 s)."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query(
-            f"SELECT * FROM signals ORDER BY generated_at DESC LIMIT {limit}",
-            conn,
-        )
-        conn.close()
-        return df
+        engine = get_engine()
+        with engine.connect() as conn:
+            return pd.read_sql_query(
+                f"SELECT * FROM signals ORDER BY generated_at DESC LIMIT {limit}",
+                conn,
+            )
     except Exception:
         return pd.DataFrame()
 
 
 @st.cache_data(ttl=3600)
 def load_ohlcv(ticker: str, days: int = 365) -> pd.DataFrame:
-    """
-    Load OHLCV from SQLite price_data table (cached 1 hr).
-
-    Falls back to an empty DataFrame if table or ticker absent.
-    """
-    if not DB_PATH.exists():
-        return pd.DataFrame()
+    """Load OHLCV from price_data table via SQLAlchemy (cached 1 hr)."""
     try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query(
-            "SELECT date, open, high, low, close, volume "
-            "FROM price_data "
-            "WHERE ticker = ? "
-            "ORDER BY date DESC "
-            f"LIMIT {days}",
-            conn,
-            params=(ticker,),
-        )
-        conn.close()
+        engine = get_engine()
+        with engine.connect() as conn:
+            df = pd.read_sql_query(
+                "SELECT date, open, high, low, close, volume "
+                "FROM price_data "
+                "WHERE ticker = :ticker "
+                "ORDER BY date DESC "
+                f"LIMIT {days}",
+                conn,
+                params={"ticker": ticker},
+            )
         if df.empty:
             return df
         df["date"] = pd.to_datetime(df["date"])
@@ -249,7 +238,7 @@ with col_d:
 
 st.divider()
 st.caption(
-    "Data stored locally at `data/cache/trading_bot.db` · "
+    "Data stored in Supabase (DATABASE_URL) · "
     "Models at `data/models/` · "
     "Inference runs Mon–Fri at 15:45 IST"
 )
