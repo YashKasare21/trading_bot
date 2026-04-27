@@ -109,14 +109,14 @@ class VirtualBroker:
 
             exit_reason = None
             if pos.trade_type == "BUY":
-                if current_price >= pos.target:
+                if current_price >= float(pos.target):
                     exit_reason = "TARGET"
-                elif current_price <= pos.stop_loss:
+                elif current_price <= float(pos.stop_loss):
                     exit_reason = "STOP_LOSS"
             elif pos.trade_type == "SELL":
-                if current_price <= pos.target:
+                if current_price <= float(pos.target):
                     exit_reason = "TARGET"
-                elif current_price >= pos.stop_loss:
+                elif current_price >= float(pos.stop_loss):
                     exit_reason = "STOP_LOSS"
 
             if exit_reason:
@@ -130,10 +130,10 @@ class VirtualBroker:
         today_str: str,
     ) -> None:
         """Close a position and record to trade_history."""
-        pnl = (exit_price - pos.entry_price) * pos.quantity
-        pnl_percentage = (
-            (exit_price - pos.entry_price) / pos.entry_price * 100 if pos.entry_price > 0 else 0.0
-        )
+        entry_price = float(pos.entry_price)
+        quantity = int(pos.quantity)
+        pnl = (exit_price - entry_price) * quantity
+        pnl_percentage = (exit_price - entry_price) / entry_price * 100 if entry_price > 0 else 0.0
 
         with Session(self._engine) as session:
             session.execute(delete(OpenPosition).where(OpenPosition.id == pos.id))
