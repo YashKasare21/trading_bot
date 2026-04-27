@@ -132,7 +132,7 @@ def load_open_positions() -> pd.DataFrame:
             positions = session.execute(select(OpenPosition)).scalars().all()
         if not positions:
             return pd.DataFrame()
-        return pd.DataFrame(
+        df = pd.DataFrame(
             [
                 {
                     "id": p.id,
@@ -148,6 +148,9 @@ def load_open_positions() -> pd.DataFrame:
                 for p in positions
             ]
         )
+        for col in ("entry_price", "quantity", "stop_loss", "target"):
+            df[col] = df[col].astype(float)
+        return df
     except Exception:
         return pd.DataFrame()
 
