@@ -14,17 +14,20 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from dotenv import load_dotenv
+
+# Force-load .env at absolute top, before any DB access
+ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT / ".env")
+print(f"DEBUG DB URL: {os.getenv('DATABASE_URL')}")
+
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, declarative_base
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
-ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-
-load_dotenv(ROOT / ".env")
 
 # ── Page config (must be first Streamlit call) ─────────────────────────────────
 st.set_page_config(
